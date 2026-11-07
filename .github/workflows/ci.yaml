@@ -1,0 +1,91 @@
+name: Python CI CD Pipeline
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: write
+
+jobs:
+
+  test:
+
+    name: Python Testing
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run Pytest
+        run: |
+          python -m pytest -v
+
+
+  build:
+
+    name: Docker Build and Push
+
+    needs: test
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build Docker Image
+        run: |
+          docker build \
+            -t mayuri67/python-cicd:${GITHUB_SHA::7} .
+
+      - name: Scan Docker Image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: mayuri67/python-cicd:${{ github.sha }}
+          format: table
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: CRITICAL,HIGH
+
+      - name: Push Docker Image
+        run: |
+          docker push mayuri67/python-cicd:${GITHUB_SHA::7}
+
+      - name: Update Helm Image Tag
+        run: |
+          IMAGE_TAG=${GITHUB_SHA::7}
+
+          sed -i "s|tag:.*|tag: \"${IMAGE_TAG}\"|" \
+          helm/python-app/values.yaml
+
+          git config user.name "github-actions[bot]"
+          git config user.email \
+          "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add helm/python-app/values.yaml
+
+          git commit -m "Update image tag ${IMAGE_TAG} [skip ci]"
+
+          git push origin HEAD:main
