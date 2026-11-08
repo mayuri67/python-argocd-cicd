@@ -4,19 +4,29 @@ on:
   push:
     branches:
       - main
+
   pull_request:
     branches:
       - main
+
+permissions:
+  contents: read
 
 env:
   IMAGE_NAME: mayuri67/python-cicd
 
 jobs:
+
+  # =====================================
+  # JOB 1: PYTHON CI - TESTING
+  # =====================================
+
   python-ci:
     name: Python Testing
     runs-on: ubuntu-latest
 
     steps:
+
       - name: Checkout Code
         uses: actions/checkout@v4
 
@@ -24,9 +34,11 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
 
       - name: Install Dependencies
         run: |
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pytest
 
@@ -34,14 +46,22 @@ jobs:
         run: |
           python -m pytest -v
 
+
+  # =====================================
+  # JOB 2: DOCKER BUILD + TRIVY SCAN
+  # =====================================
+
   docker-build-scan-push:
     name: Docker Build Trivy Scan Push
     runs-on: ubuntu-latest
     needs: python-ci
 
     steps:
+
       - name: Checkout Code
         uses: actions/checkout@v4
+
+      # Build Docker Image
 
       - name: Build Docker Image
         run: |
@@ -49,13 +69,17 @@ jobs:
             -t ${{ env.IMAGE_NAME }}:${{ github.sha }} \
             .
 
+      # Verify Docker Image
+
       - name: Verify Docker Image
         run: |
           docker images
           docker image inspect ${{ env.IMAGE_NAME }}:${{ github.sha }}
 
+      # Trivy Vulnerability Scan
+
       - name: Trivy Security Scan
-        uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: image
           image-ref: ${{ env.IMAGE_NAME }}:${{ github.sha }}
@@ -65,6 +89,8 @@ jobs:
           vuln-type: 'os,library'
           severity: 'HIGH,CRITICAL'
 
+      # Docker Hub Authentication
+
       - name: Docker Hub Login
         if: github.event_name == 'push'
         uses: docker/login-action@v3
@@ -72,10 +98,14 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+      # Push SHA Tagged Image
+
       - name: Push Docker Image
         if: github.event_name == 'push'
         run: |
           docker push ${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+      # Tag Latest
 
       - name: Tag Latest Image
         if: github.event_name == 'push'
@@ -84,4 +114,9 @@ jobs:
             ${{ env.IMAGE_NAME }}:${{ github.sha }} \
             ${{ env.IMAGE_NAME }}:latest
 
+      # Push Latest Image
+
+      - name: Push Latest Image
+        if: github.event_name == 'push'
+        run: |
           docker push ${{ env.IMAGE_NAME }}:latest
