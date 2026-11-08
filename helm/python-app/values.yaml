@@ -1,0 +1,12 @@
+replicaCount: 2
+
+image:
+  repository: mayuri67/python-cicd
+  tag: "latest"
+  pullPolicy: Always
+
+service:
+  type: NodePort
+  port: 8000
+  targetPort: 8000
+  nodePort: 30088
